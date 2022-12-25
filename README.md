@@ -42,7 +42,7 @@ Users['event_ts'] = Column(datetime)
 ```
 
 ### Step3 
-run `python -m datashack.cli apply my_app/models local_docker/yamls` in your terminal
+run `datashack apply my_app/models local_docker/yamls` in your terminal
 
 ## Step 4
 visit http://localhost:8501 to see the datalake
