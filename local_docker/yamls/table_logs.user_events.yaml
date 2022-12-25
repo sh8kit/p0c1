@@ -1,0 +1,14 @@
+columns:
+- name: id
+  type: str
+- name: name
+  type: str
+- name: email
+  type: str
+- name: event_type
+  type: str
+- name: event_ts
+  type: datetime
+database: logs
+table_name: user_events
+ts_partitioner: ingestion_date

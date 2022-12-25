@@ -1,0 +1,157 @@
+# https://raw.githubusercontent.com/tchiotludo/akhq/master/docker-compose.yml
+# https://github.com/tchiotludo/akhq/blob/dev/docker-compose-multiple-clusters.yml
+# https://github.com/tchiotludo/akhq/blob/dev/docker-compose-dev.yml
+
+# TODO:
+#   * healtcheck for kafka and zookper
+#   * proper depends_on configuration (maybe use docker swarm)
+#   * a second cluster
+
+volumes:
+  zookeeper_data:
+    driver: local
+  kafka_data:
+    driver: local
+
+services:
+  kafka-connect:
+    build:
+      context: ./kafka-connect/
+      dockerfile: ./kafka-connect.dockerfile
+    restart: always
+    ports:
+      - 28082:28082
+    depends_on:
+      - kafka
+      - schema-registry
+    environment:
+      ## localstack
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      ##
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_PORT: 28082
+      CONNECT_HOST_NAME: kafka-connect
+      CONNECT_LISTENERS: http://kafka-connect:28082
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_LISTENERS: http://kafka-connect:28082
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_GROUP_ID: kafka-connect
+      CONNECT_CONFIG_STORAGE_TOPIC: kafka-connect-config
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_TOPIC: kafka-connect-offset
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: kafka-connect-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      KAFKA_HEAP_OPTS: -Xms3g -Xmx4g
+      SCHEMA_REGISTRY_URL: schema-registry:8085
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8085
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8085
+    platform: linux/amd64
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    platform: linux/amd64
+
+  kafka:
+    image: confluentinc/cp-kafka
+    hostname: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://registry:8081
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    platform: linux/amd64
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry
+    hostname: registry
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    platform: linux/amd64
+  minio:
+    container_name: minio
+    hostname: minio
+    image: minio/minio:RELEASE.2020-04-10T03-34-42Z
+    ports:
+      - 9000:9000
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    command: server /data
+    
+  presto:
+    hostname: presto
+    image: 'starburstdata/presto:latest'
+    container_name: presto
+    ports:
+      - '8080:8080'
+    volumes:
+      - './presto/presto-cli-0.278-executable.jar:/usr/bin/presto'
+      - './presto/minio.properties:/usr/lib/presto/etc/catalog/minio.properties'
+  hadoop:
+    hostname: hadoop-master
+    image: 'prestodb/hive3.1-hive:latest'
+    container_name: hadoop-master
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+    volumes:
+      - './hadoop/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml'
+
+  datashack_server:
+    hostname: datashack_server
+    image: mzsrtgzr/poc_1_app:latest
+    container_name: datashack_server
+    ports:
+      - '8501:8501'
+      - '5000:5000'
+    environment:
+      presto_host: presto
+      kafka_connect_host: kafka-connect
+      minio_host: minio
+      kafka_bootstarp_server: kafka:29092
+    volumes:
+      - './yamls:/datashack/terraform/modules/datashack/yamls/'
+    depends_on:
+      - kafka
+      - schema-registry
+      - hadoop
+      - kafka-connect
+      - presto
+      - minio
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "7070:8080"
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+      - KAFKA_CLUSTERS_0_READONLY=true

@@ -1,0 +1,10 @@
+columns:
+- name: id
+  type: str
+- name: name
+  type: str
+- name: code
+  type: str
+database: logs
+table_name: products
+ts_partitioner: ingestion_date
